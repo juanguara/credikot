@@ -1,0 +1,32 @@
+<odoo>
+  <record id="view_crm_lead_form_inherit_referente" model="ir.ui.view">
+    <field name="name">crm.lead.form.referente</field>
+    <field name="model">crm.lead</field>
+    <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+    <field name="priority">170</field>
+    <field name="arch" type="xml">
+      <xpath expr="//sheet//group[1]" position="inside">
+        <group string="Referente (rápido)">
+          <field name="referente_id"/>
+          <button name="action_buscar_referente_por_telefono"
+                  type="object"
+                  string="Buscar/Crear por teléfono"
+                  class="oe_highlight"/>
+        </group>
+      </xpath>
+      <xpath expr="//sheet/notebook" position="inside">
+        <page string="Referentes" name="lead_referentes_page">
+          <group>
+            <field name="referente_ids_rel"
+                   mode="kanban,form"
+                   context="{
+                     'kanban_view_ref':'crm_contact_referents.view_res_partner_referente_kanban_ccr',
+                     'form_view_ref':'crm_contact_referents.view_res_partner_referente_form_ccr'
+                   }"/>
+          </group>
+        </page>
+      </xpath>
+    </field>
+  </record>
+</odoo>
+

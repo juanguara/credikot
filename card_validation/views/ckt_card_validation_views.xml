@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- LISTA (solo lectura; sin partner ni lead) -->
+  <record id="view_ckt_card_validation_list" model="ir.ui.view">
+    <field name="name">ckt.card.validation.list</field>
+    <field name="model">ckt.card.validation</field>
+    <field name="type">list</field>
+    <field name="arch" type="xml">
+      <!-- type=list pero el tag es <tree>; create/edit/delete deshabilitados -->
+      <list create="0" edit="0" delete="0">
+        <field name="validation_datetime"/>
+        <field name="vendor"/>
+        <field name="pan_last4"/>
+        <field name="expiry_mm_yy"/>
+        <!-- Se quitó partner_id y lead_id -->
+        <field name="validation_result"/>
+        <field name="source_system"/>
+      </list>
+    </field>
+  </record>
+
+  <!-- FORM (solo lectura) -->
+  <record id="view_ckt_card_validation_form" model="ir.ui.view">
+    <field name="name">ckt.card.validation.form</field>
+    <field name="model">ckt.card.validation</field>
+    <field name="type">form</field>
+    <field name="arch" type="xml">
+      <!-- create/edit/delete deshabilitados -->
+      <form string="Validación de Tarjeta" create="0" edit="0" delete="0">
+        <sheet>
+          <group>
+            <group>
+              <field name="validation_datetime" readonly="1"/>
+              <field name="vendor" readonly="1"/>
+              <field name="pan_obfuscated" readonly="1"/>
+              <field name="pan_last4" readonly="1"/>
+              <field name="pan_hash" readonly="1"/>
+              <field name="expiry_date" readonly="1"/>
+              <field name="expiry_mm_yy" readonly="1"/>
+            </group>
+            <group>
+              <field name="partner_vat" readonly="1"/>
+              <field name="partner_id" readonly="1" options="{'no_open': False}"/>
+              <field name="lead_x_solicitud" readonly="1"/>
+              <field name="lead_id" readonly="1" options="{'no_open': False}"/>
+              <field name="source_system" readonly="1"/>
+              <field name="validation_key" readonly="1"/>
+            </group>
+          </group>
+          <group>
+            <field name="validation_result" readonly="1" widget="text"/>
+          </group>
+        </sheet>
+      </form>
+    </field>
+  </record>
+
+  <!-- SEARCH (dejamos partner/lead para filtrar aunque no estén en la lista) -->
+  <record id="view_ckt_card_validation_search" model="ir.ui.view">
+    <field name="name">ckt.card.validation.search</field>
+    <field name="model">ckt.card.validation</field>
+    <field name="arch" type="xml">
+      <search string="Buscar">
+        <field name="vendor"/>
+        <field name="pan_last4"/>
+        <field name="expiry_mm_yy"/>
+        <field name="partner_id"/>
+        <field name="lead_id"/>
+
+        <filter name="mine" string="Mis leads" domain="[('lead_id.user_id','=',uid)]"/>
+        <filter name="no_lead" string="Sin oportunidad" domain="[('lead_id','=',False)]"/>
+
+        <group expand="0" string="Agrupar por">
+          <filter name="grp_vendor" string="Vendor" context="{'group_by': 'vendor'}"/>
+          <filter name="grp_partner" string="Contacto" context="{'group_by': 'partner_id'}"/>
+          <filter name="grp_lead" string="Oportunidad" context="{'group_by': 'lead_id'}"/>
+        </group>
+      </search>
+    </field>
+  </record>
+
+  <!-- ACTION + MENÚ -->
+  <record id="action_ckt_card_validation" model="ir.actions.act_window">
+    <field name="name">Validaciones de Tarjetas</field>
+    <field name="res_model">ckt.card.validation</field>
+    <field name="view_mode">list,form</field>
+    <field name="view_id" ref="view_ckt_card_validation_list"/>
+  </record>
+
+  <menuitem id="menu_ckt_root" name="CKT" sequence="90"/>
+  <menuitem id="menu_ckt_card_validation" name="Validaciones de Tarjetas"
+            parent="menu_ckt_root" action="action_ckt_card_validation" sequence="1"/>
+
+</odoo>
+

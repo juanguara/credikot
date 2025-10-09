@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- Acción que lista ir.logging filtrado por nuestro nombre -->
+  <record id="action_ir_logging_hook" model="ir.actions.act_window">
+    <field name="name">Logs (SOAP Hook)</field>
+    <field name="res_model">ir.logging</field>
+    <field name="view_mode">list,form</field>
+    <field name="domain">[('name', '=', 'crm_soap_state_hook')]</field>
+    <field name="context">{}</field>
+    <field name="target">current</field>
+    <field name="groups_id" eval="[(4, ref('base.group_system'))]"/>
+  </record>
+
+  <!-- Menú colgado bajo Administración (evita depender de items técnicos que varían) -->
+  <menuitem id="menu_ir_logging_hook"
+            name="Logs (SOAP Hook)"
+            parent="base.menu_administration"
+            action="action_ir_logging_hook"
+            groups="base.group_system"
+            sequence="999"/>
+</odoo>
+

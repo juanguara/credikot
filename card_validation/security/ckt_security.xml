@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+  <!-- Ventas: lectura de validaciones vinculadas a leads propios o de su(s) equipo(s).
+       También permite ver registros sin lead (lead_id = False). -->
+  <record id="rule_card_validation_salesuser_read" model="ir.rule">
+    <field name="name">Validaciones - Ventas (lectura)</field>
+    <field name="model_id" ref="model_ckt_card_validation"/>
+    <field name="groups" eval="[(4, ref('sales_team.group_sale_salesman'))]"/>
+    <field name="domain_force">[
+      '|',
+        ('lead_id','=',False),
+        '|',
+          ('lead_id.user_id', '=', user.id),
+          ('lead_id.team_id.member_ids', 'in', [user.id])
+    ]</field>
+  </record>
+
+  <!-- Manager de ventas: lectura/escritura total -->
+  <record id="rule_card_validation_salesmanager_rw" model="ir.rule">
+    <field name="name">Validaciones - Sales Manager (rw)</field>
+    <field name="model_id" ref="model_ckt_card_validation"/>
+    <field name="groups" eval="[(4, ref('sales_team.group_sale_manager'))]"/>
+    <field name="domain_force">[(1,'=',1)]</field>
+  </record>
+
+  <!-- Administradores: total -->
+  <record id="rule_card_validation_admin_rw" model="ir.rule">
+    <field name="name">Validaciones - Admin (rw)</field>
+    <field name="model_id" ref="model_ckt_card_validation"/>
+    <field name="groups" eval="[(4, ref('base.group_system'))]"/>
+    <field name="domain_force">[(1,'=',1)]</field>
+  </record>
+</odoo>
+

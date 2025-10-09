@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_ckt_card_validation_user,ckt.card.validation user,model_ckt_card_validation,sales_team.group_sale_salesman,1,0,0,0
+access_ckt_card_validation_manager,ckt.card.validation manager,model_ckt_card_validation,sales_team.group_sale_manager,1,1,1,1
+access_ckt_card_validation_admin,ckt.card.validation admin,model_ckt_card_validation,base.group_system,1,1,1,1
+

@@ -1,0 +1,46 @@
+<odoo>
+  <!-- Kanban para res.partner.referente -->
+  <record id="view_res_partner_referente_kanban_ccr" model="ir.ui.view">
+    <field name="name">res.partner.referente.kanban.ccr</field>
+    <field name="model">res.partner.referente</field>
+    <field name="arch" type="xml">
+      <kanban default_group_by="relation" quick_create="false" class="o_kanban_small_column">
+        <templates>
+          <t t-name="kanban-box">
+            <div class="oe_kanban_global_click">
+              <div class="o_kanban_record_title">
+                <field name="name"/>
+              </div>
+              <div class="o_kanban_details">
+                <div><strong>Relación:</strong> <field name="relation"/></div>
+                <div><strong>Tel:</strong> <field name="phone"/></div>
+                <div><field name="observations"/></div>
+              </div>
+            </div>
+          </t>
+        </templates>
+      </kanban>
+    </field>
+  </record>
+
+  <!-- Form básico para res.partner.referente -->
+  <record id="view_res_partner_referente_form_ccr" model="ir.ui.view">
+    <field name="name">res.partner.referente.form.ccr</field>
+    <field name="model">res.partner.referente</field>
+    <field name="arch" type="xml">
+      <form string="Referente">
+        <sheet>
+          <group>
+            <field name="name"/>
+            <field name="relation"/>
+            <field name="phone"/>
+          </group>
+          <group>
+            <field name="partner_ids" widget="many2many_tags"/>
+            <field name="observations"/>
+          </group>
+        </sheet>
+      </form>
+    </field>
+  </record>
+</odoo>

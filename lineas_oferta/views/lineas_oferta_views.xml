@@ -1,0 +1,175 @@
+<odoo>
+    
+    <!-- Vista Lista de Líneas de Oferta -->
+    <record id="view_lineas_oferta_tree" model="ir.ui.view">
+        <field name="name">lineas.oferta.tree</field>
+        <field name="model">lineas.oferta</field>
+        <field name="arch" type="xml">
+            <list string="Líneas de Oferta" 
+                  create="false" 
+                  delete="false"
+                  decoration-success="rie_ped_rpta_lin_r_seleccion == 'S'"
+                  decoration-muted="rie_ped_rpta_lin_r_seleccion == 'N'">
+                <button name="action_toggle_selection"
+                        type="object"
+                        class="btn-link"
+                        icon="fa-exchange"
+                        string="Alternar"/>
+                <field name="is_selected" string="Seleccionada" widget="boolean_toggle" readonly="1"/>
+                <field name="rie_ped_id" string="ID Pedido" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_lin_cred_des" string="Línea Crédito" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_capital" string="Capital" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_capital_en_mano" string="Capital en Mano" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_capital_neto_ren" string="Capital Neto Ren" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_cuotas" string="Cuotas" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_imp_cuota" string="Importe Cuota" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_tem" string="TEM %" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_tir" string="TIR %" readonly="1"/>
+                <field name="rie_ped_rpta_lin_r_seleccion" string="Selección" widget="badge" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Vista Formulario de Líneas de Oferta -->
+    <record id="view_lineas_oferta_form" model="ir.ui.view">
+        <field name="name">lineas.oferta.form</field>
+        <field name="model">lineas.oferta</field>
+        <field name="arch" type="xml">
+            <form string="Línea de Oferta" create="false" delete="false">
+                <sheet>
+                    <group>
+                        <group string="Información Principal">
+                            <field name="lead_id" readonly="1"/>
+                            <field name="rie_ped_id" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_ren" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_auditor" readonly="1"/>
+                            <field name="is_selected" widget="boolean_toggle" readonly="1"/>
+                            <button name="action_toggle_selection"
+                                    type="object"
+                                    class="btn-link"
+                                    icon="fa-exchange"
+                                    string="Alternar"/>
+                            <field name="rie_ped_rpta_lin_r_seleccion" readonly="1"/>
+                        </group>
+                        
+                        <group string="Línea de Crédito">
+                            <field name="rie_ped_rpta_lin_r_lin_cred" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_lin_cred_des" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_lin_cred_ren" readonly="1"/>
+                        </group>
+                    </group>
+                    
+                    <group>
+                        <group string="Montos">
+                            <field name="rie_ped_rpta_lin_r_capital" readonly="1" widget="monetary"/>
+                            <field name="rie_ped_rpta_lin_r_capital_en_mano" readonly="1" widget="monetary"/>
+                            <field name="rie_ped_rpta_lin_r_capital_neto_ren" readonly="1" widget="monetary"/>
+                            <field name="rie_ped_rpta_lin_r_imp_cuota" readonly="1" widget="monetary"/>
+                            <field name="rie_ped_rpta_lin_r_servicio" readonly="1" widget="monetary"/>
+                            <field name="rie_ped_rpta_lin_r_gastos" readonly="1" widget="monetary"/>
+                        </group>
+                        
+                        <group string="Tasas y Plazo">
+                            <field name="rie_ped_rpta_lin_r_tasa" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_tea" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_tem" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_tir" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_cuotas" readonly="1"/>
+                        </group>
+                    </group>
+                    
+                    <group string="Descripción RIMA">
+                        <field name="rie_ped_rpta_lin_r_rima_id_des" readonly="1" nolabel="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Acción para abrir líneas de oferta -->
+    <record id="action_lineas_oferta" model="ir.actions.act_window">
+        <field name="name">Líneas de Oferta</field>
+        <field name="res_model">lineas.oferta</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No hay líneas de oferta disponibles
+            </p>
+            <p>
+                Use el botón "Actualizar desde API" para cargar las ofertas disponibles.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menú en CRM -->
+    <menuitem id="menu_lineas_oferta" 
+              name="Líneas de Oferta" 
+              parent="crm.crm_menu_sales" 
+              action="action_lineas_oferta" 
+              sequence="10"/>
+
+    <!-- Agregar página en la vista de oportunidad -->
+    <record id="view_crm_lead_form_lineas_oferta" model="ir.ui.view">
+        <field name="name">crm.lead.form.lineas.oferta</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            
+            <!-- Botón en la parte superior -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="action_view_lineas_oferta" 
+                        type="object" 
+                        class="oe_stat_button" 
+                        icon="fa-list-ol">
+                    <field name="lineas_oferta_count" widget="statinfo" string="Ofertas"/>
+                </button>
+                <button name="action_actualizar_lineas_oferta" 
+                        type="object" 
+                        class="oe_stat_button" 
+                        icon="fa-refresh"
+                        string="Actualizar Ofertas"
+                        invisible="x_studio_solicitud == False"/>
+            </xpath>
+            
+            <!-- Pestaña de líneas de oferta -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Líneas de Oferta" name="lineas_oferta">
+                    <group>
+                <button name="action_actualizar_lineas_oferta" 
+                        string="Actualizar desde API" 
+                        type="object" 
+                        class="btn-primary"
+                        invisible="x_studio_solicitud == False"/>
+                    </group>
+                    <field name="lineas_oferta_ids" 
+                           context="{'default_lead_id': id}"
+                           mode="list"
+                           form_view_ref="lineas_oferta.view_lineas_oferta_form">
+                        <list string="Ofertas Disponibles" 
+                              create="false" 
+                              delete="false"
+                              decoration-success="rie_ped_rpta_lin_r_seleccion == 'S'"
+                              decoration-muted="rie_ped_rpta_lin_r_seleccion == 'N'">
+                            <button name="action_toggle_selection"
+                                    type="object"
+                                    class="btn-link"
+                                    icon="fa-exchange"
+                                    string="Alternar"/>
+                            <field name="is_selected" string="Seleccionada" widget="boolean_toggle" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_ren" string="Ren" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_lin_cred_des" string="Línea Crédito" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_tasa" string="Tasa %" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_capital" string="Capital" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_cuotas" string="Cuotas" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_imp_cuota" string="Importe Cuota" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_tea" string="TEA %" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_seleccion" string="Selección" widget="badge" readonly="1"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

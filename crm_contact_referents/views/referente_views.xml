@@ -1,0 +1,68 @@
+<odoo>
+  <record id="view_res_partner_referente_list" model="ir.ui.view">
+    <field name="name">res.partner.referente.list</field>
+    <field name="model">res.partner.referente</field>
+    <field name="type">list</field>
+    <field name="arch" type="xml">
+      <list editable="bottom">
+        <field name="name"/>
+        <field name="relation"/>
+        <field name="phone"/>
+        <field name="partner_count" readonly="1"/>
+        <field name="observations"/>
+      </list>
+    </field>
+  </record>
+
+  <record id="view_res_partner_referente_form" model="ir.ui.view">
+    <field name="name">res.partner.referente.form</field>
+    <field name="model">res.partner.referente</field>
+    <field name="type">form</field>
+    <field name="arch" type="xml">
+      <form string="Referente">
+        <sheet>
+          <group>
+            <field name="name"/>
+            <field name="relation"/>
+            <field name="phone"/>
+            <field name="observations"/>
+            <field name="partner_ids" widget="many2many_tags" readonly="1"/>
+          </group>
+        </sheet>
+      </form>
+    </field>
+  </record>
+
+  <record id="view_res_partner_referente_kanban" model="ir.ui.view">
+    <field name="name">res.partner.referente.kanban</field>
+    <field name="model">res.partner.referente</field>
+    <field name="type">kanban</field>
+    <field name="arch" type="xml">
+      <kanban default_group_by="relation" class="o_kanban_small_column">
+        <templates>
+          <t t-name="kanban-box">
+            <div t-attf-class="oe_kanban_global_click o_kanban_record">
+              <div class="o_kanban_primary_bottom">
+                <div class="o_kanban_details">
+                  <strong><field name="name"/></strong>
+                  <div><span class="badge"><field name="relation"/></span></div>
+                  <div>📞 <field name="phone"/></div>
+                  <div>👥 <field name="partner_count"/></div>
+                  <div class="text-muted o_text_overflow"><field name="observations"/></div>
+                </div>
+              </div>
+            </div>
+          </t>
+        </templates>
+      </kanban>
+    </field>
+  </record>
+
+  <record id="action_referentes_kanban_for_partner" model="ir.actions.act_window">
+    <field name="name">Referentes</field>
+    <field name="res_model">res.partner.referente</field>
+    <field name="view_mode">kanban,form,list</field>
+    <field name="context">{}</field>
+    <field name="target">current</field>
+  </record>
+</odoo>
