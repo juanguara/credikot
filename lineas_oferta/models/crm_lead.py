@@ -73,9 +73,10 @@ class CrmLead(models.Model):
             return False
         return f"{digits[:2]}-{digits[2:10]}-{digits[10:]}"
 
-    def action_actualizar_lineas_oferta(self):
+    def _sync_lineas_oferta_records(self):
         """
-        Llamar a la API y actualizar las líneas de oferta
+        Invoca el API de líneas de oferta y sincroniza los registros locales.
+        Devuelve la cantidad de líneas recibidas desde el servicio externo.
         """
         self.ensure_one()
         
@@ -248,28 +249,10 @@ class CrmLead(models.Model):
             )
             if lines_to_delete:
                 lines_to_delete.sudo().unlink()
-            
-            alert_count = self.action_actualizar_alertas()
-
-            success_msg = f"Se actualizaron {len(data)} líneas de oferta y {alert_count} alertas correctamente"
-            user_message = _(
-                "Se actualizaron %(offers)d líneas de oferta y %(alerts)d alertas correctamente"
-            ) % {'offers': len(data), 'alerts': alert_count}
-
+            success_msg = f"Se actualizaron {len(data)} líneas de oferta correctamente"
             _logger.info(success_msg)
             self._log_db_lineas_oferta("INFO", success_msg, "action_actualizar_lineas_oferta")
-            self._log_db_lineas_oferta("INFO", "=== FIN DEL MÉTODO EXITOSO ===", "action_actualizar_lineas_oferta")
-
-            return {
-                'type': 'ir.actions.client',
-                'tag': 'reload',
-                'params': {
-                    'title': _('Éxito'),
-                    'message': user_message,
-                    'type': 'success',
-                    'sticky': False,
-                }
-            }
+            return len(data)
 
         except UserError:
             raise
@@ -287,6 +270,77 @@ class CrmLead(models.Model):
             import traceback
             self._log_db_lineas_oferta("ERROR", f"Traceback: {traceback.format_exc()}", "action_actualizar_lineas_oferta")
             raise UserError(_('Error al procesar los datos: %s') % str(e))
+
+    def action_actualizar_lineas_oferta(self):
+        """
+        Llamar a la API y actualizar las líneas de oferta junto con las alertas,
+        permitiendo que cada sincronización sea independiente.
+        """
+        self.ensure_one()
+
+        offer_count = 0
+        alert_count = 0
+        offer_error = None
+        alert_error = None
+
+        def _exception_to_message(exc):
+            if isinstance(exc, UserError) and exc.args:
+                return exc.args[0]
+            return str(exc)
+
+        try:
+            with self.env.cr.savepoint():
+                offer_count = self._sync_lineas_oferta_records()
+        except Exception as exc:
+            offer_error = _exception_to_message(exc)
+            log_level = "WARNING" if isinstance(exc, UserError) else "ERROR"
+            self._log_db_lineas_oferta(log_level, f"Error al sincronizar líneas de oferta: {offer_error}", "action_actualizar_lineas_oferta")
+            if isinstance(exc, UserError):
+                _logger.warning("Error al sincronizar líneas de oferta para lead_id=%s: %s", self.id, offer_error)
+            else:
+                _logger.exception("Error inesperado al sincronizar líneas de oferta para lead_id=%s", self.id)
+
+        try:
+            with self.env.cr.savepoint():
+                alert_count = self.action_actualizar_alertas()
+        except Exception as exc:
+            alert_error = _exception_to_message(exc)
+            log_level = "WARNING" if isinstance(exc, UserError) else "ERROR"
+            self._log_db_lineas_oferta(log_level, f"Error al sincronizar alertas: {alert_error}", "action_actualizar_lineas_oferta")
+            if isinstance(exc, UserError):
+                _logger.warning("Error al sincronizar alertas para lead_id=%s: %s", self.id, alert_error)
+            else:
+                _logger.exception("Error inesperado al sincronizar alertas para lead_id=%s", self.id)
+
+        message_parts = []
+        if offer_error:
+            message_parts.append(_("Ofertas: %(msg)s") % {'msg': offer_error})
+        else:
+            message_parts.append(_("Ofertas actualizadas: %(count)d") % {'count': offer_count})
+
+        if alert_error:
+            message_parts.append(_("Alertas: %(msg)s") % {'msg': alert_error})
+        else:
+            message_parts.append(_("Alertas actualizadas: %(count)d") % {'count': alert_count})
+
+        message_type = 'success' if not offer_error and not alert_error else 'warning'
+        title = _('Éxito') if message_type == 'success' else _('Aviso')
+        final_message = "\n".join(message_parts)
+
+        log_level = "INFO" if message_type == 'success' else "WARNING"
+        self._log_db_lineas_oferta(log_level, final_message, "action_actualizar_lineas_oferta")
+        _logger.log(logging.INFO if message_type == 'success' else logging.WARNING, final_message)
+
+        return {
+            'type': 'ir.actions.client',
+            'tag': 'reload',
+            'params': {
+                'title': title,
+                'message': final_message,
+                'type': message_type,
+                'sticky': False,
+            }
+        }
 
     def action_actualizar_alertas(self):
         """
