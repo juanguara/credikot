@@ -82,8 +82,11 @@ class CrmLead(models.Model):
             if not value:
                 continue
             digits = "".join(ch for ch in str(value) if ch.isdigit())
-            if digits:
-                return digits
+            if not digits:
+                continue
+            if len(digits) >= 3:
+                return digits[:3]
+            return digits.zfill(3)
         return ""
 
     def _get_clean_cbu(self):
@@ -107,12 +110,12 @@ class CrmLead(models.Model):
             bank_code = lead._extract_bank_identification_code()
             if not bank_code:
                 raise ValidationError(_("Seleccione un banco con código de identificación para validar el CBU."))
-            if len(bank_code) < 3:
-                raise ValidationError(_("El código de identificación del banco debe tener al menos 3 dígitos."))
-            if cbu[:3] != bank_code[:3]:
+            if len(bank_code) != 3:
+                raise ValidationError(_("El código de identificación del banco debe tener tres dígitos."))
+            if cbu[:3] != bank_code:
                 raise ValidationError(
                     _("Los primeros 3 dígitos del CBU deben coincidir con el código de identificación del banco (%s).")
-                    % bank_code[:3]
+                    % bank_code
                 )
 
     # ============== Envelope EXACTO ==============
