@@ -4,7 +4,7 @@ import logging
 from xml.etree import ElementTree as ET
 
 from odoo import api, models, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 
 from urllib.parse import urljoin
 
@@ -37,6 +37,83 @@ class CrmLead(models.Model):
             "func": func or "_log_db",
         }
         self.env["ir.logging"].sudo().create(vals)
+
+    # ============== Validaciones CBU ==============
+
+    def _get_studio_value(self, *field_names):
+        for field_name in field_names:
+            if field_name in self._fields:
+                value = getattr(self, field_name)
+                if value not in (False, None, ""):
+                    return value
+        return False
+
+    @staticmethod
+    def _compute_cbu_check_digit(digits, weights):
+        total = sum(int(d) * w for d, w in zip(digits, weights))
+        return (10 - (total % 10)) % 10
+
+    def _validate_cbu_check_digits(self, digits: str) -> bool:
+        if len(digits) != 22:
+            return False
+        block_one = digits[:7]
+        digit_one = int(digits[7])
+        block_two = digits[8:21]
+        digit_two = int(digits[21])
+        weights_one = (7, 1, 3, 9, 7, 1, 3)
+        weights_two = (3, 9, 7, 1, 3, 9, 7, 1, 3, 9, 7, 1, 3)
+        return (
+            self._compute_cbu_check_digit(block_one, weights_one) == digit_one
+            and self._compute_cbu_check_digit(block_two, weights_two) == digit_two
+        )
+
+    def _extract_bank_identification_code(self):
+        bank = self._get_studio_value("x_studio_banco")
+        if not bank:
+            return ""
+        candidate_fields = (
+            "bank_identification_code",
+            "x_studio_bank_identification_code",
+            "bic",
+            "code",
+        )
+        for field_name in candidate_fields:
+            value = getattr(bank, field_name, False)
+            if not value:
+                continue
+            digits = "".join(ch for ch in str(value) if ch.isdigit())
+            if digits:
+                return digits
+        return ""
+
+    def _get_clean_cbu(self):
+        raw = self._get_studio_value("x_studio_cbu", "x_studio_CBU")
+        if not raw:
+            return ""
+        return str(raw).strip()
+
+    @api.constrains("x_studio_cbu", "x_studio_banco")
+    def _check_x_studio_cbu(self):
+        for lead in self:
+            cbu = lead._get_clean_cbu()
+            if not cbu:
+                continue
+            if not cbu.isdigit():
+                raise ValidationError(_("El CBU sólo puede contener números."))
+            if len(cbu) != 22:
+                raise ValidationError(_("El CBU debe tener exactamente 22 dígitos."))
+            if not lead._validate_cbu_check_digits(cbu):
+                raise ValidationError(_("El CBU ingresado no supera la validación de dígitos verificadores."))
+            bank_code = lead._extract_bank_identification_code()
+            if not bank_code:
+                raise ValidationError(_("Seleccione un banco con código de identificación para validar el CBU."))
+            if len(bank_code) < 3:
+                raise ValidationError(_("El código de identificación del banco debe tener al menos 3 dígitos."))
+            if cbu[:3] != bank_code[:3]:
+                raise ValidationError(
+                    _("Los primeros 3 dígitos del CBU deben coincidir con el código de identificación del banco (%s).")
+                    % bank_code[:3]
+                )
 
     # ============== Envelope EXACTO ==============
 
@@ -93,7 +170,7 @@ class CrmLead(models.Model):
 
         url = (url or "").strip()
         if "?" in url:
-            url = url.split("?", 1)[0]  # sin ?WSDL ni querystring
+            url = url.split("?", 1)[0]
 
         headers = {
             "Content-Type": "text/xml; charset=utf-8",
