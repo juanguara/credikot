@@ -54,6 +54,11 @@ class CktCardValidation(models.Model):
 
     vendor = fields.Selection(VENDOR_SELECTION, string="Vendor", required=True, index=True)
 
+    card_holder_name = fields.Char(
+        "Nombre en Tarjeta",
+        help="Nombre del titular tal como figura en la tarjeta."
+    )
+
     # Vencimiento: guardamos la fecha como día 1 del mes (YYYY-MM-01) y un helper MM/YY
     expiry_date = fields.Date("Vencimiento (YYYY-MM-01)", index=True, required=True)
     expiry_mm_yy = fields.Char("Vencimiento (MM/YY)", compute="_compute_mm_yy", store=True, index=True)
@@ -162,4 +167,3 @@ class CktCardValidation(models.Model):
         cktc_card_validation_ids = fields.One2many(
             "ckt.card.validation", "lead_id", string="Validaciones de Tarjeta"
         )
-

@@ -17,6 +17,18 @@ class ClienteAlerta(models.Model):
     vat = fields.Char(string="CUIT/CUIL", required=True, index=True)
     tipo = fields.Char(string="Tipo de Alerta", required=True)
     fecha = fields.Date(string="Fecha", required=True)
+    rec_importe_rechazado = fields.Monetary(
+        string="Importe Rechazado",
+        currency_field='currency_id',
+        help="Importe rechazado informado por el sistema legacy."
+    )
+    rec_observaciones = fields.Char(string="Observaciones")
+    currency_id = fields.Many2one(
+        'res.currency',
+        string='Moneda',
+        default=lambda self: self.env.company.currency_id.id,
+        required=True
+    )
 
     _sql_constraints = [
         (

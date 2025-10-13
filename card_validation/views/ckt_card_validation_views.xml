@@ -10,7 +10,8 @@
       <list create="0" edit="0" delete="0">
         <field name="validation_datetime"/>
         <field name="vendor"/>
-        <field name="pan_last4"/>
+        <field name="card_holder_name"/>
+        <field name="pan_obfuscated"/>
         <field name="expiry_mm_yy"/>
         <!-- Se quitó partner_id y lead_id -->
         <field name="validation_result"/>
@@ -32,6 +33,7 @@
             <group>
               <field name="validation_datetime" readonly="1"/>
               <field name="vendor" readonly="1"/>
+              <field name="card_holder_name" readonly="1"/>
               <field name="pan_obfuscated" readonly="1"/>
               <field name="pan_last4" readonly="1"/>
               <field name="pan_hash" readonly="1"/>
@@ -62,6 +64,7 @@
     <field name="arch" type="xml">
       <search string="Buscar">
         <field name="vendor"/>
+        <field name="card_holder_name"/>
         <field name="pan_last4"/>
         <field name="expiry_mm_yy"/>
         <field name="partner_id"/>
@@ -92,4 +95,3 @@
             parent="menu_ckt_root" action="action_ckt_card_validation" sequence="1"/>
 
 </odoo>
-

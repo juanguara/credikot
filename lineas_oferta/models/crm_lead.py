@@ -1,6 +1,7 @@
 from datetime import datetime, date
 
 from odoo import models, fields, api, _
+from odoo.tools.safe_eval import safe_eval
 from odoo.exceptions import UserError
 import requests
 import json
@@ -65,7 +66,13 @@ class CrmLead(models.Model):
     def _compute_cliente_alerta_count(self):
         for lead in self:
             lead.cliente_alerta_count = len(lead.cliente_alerta_ids)
-    
+
+    def _format_vat_as_cuit(self, vat_value):
+        digits = "".join(ch for ch in (vat_value or "") if ch.isdigit())
+        if len(digits) != 11:
+            return False
+        return f"{digits[:2]}-{digits[2:10]}-{digits[10:]}"
+
     def action_actualizar_lineas_oferta(self):
         """
         Llamar a la API y actualizar las líneas de oferta
@@ -242,24 +249,30 @@ class CrmLead(models.Model):
             if lines_to_delete:
                 lines_to_delete.sudo().unlink()
             
-            # Mensaje de éxito
-            success_msg = f"Se actualizaron {len(data)} líneas de oferta correctamente"
+            alert_count = self.action_actualizar_alertas()
+
+            success_msg = f"Se actualizaron {len(data)} líneas de oferta y {alert_count} alertas correctamente"
+            user_message = _(
+                "Se actualizaron %(offers)d líneas de oferta y %(alerts)d alertas correctamente"
+            ) % {'offers': len(data), 'alerts': alert_count}
+
             _logger.info(success_msg)
             self._log_db_lineas_oferta("INFO", success_msg, "action_actualizar_lineas_oferta")
             self._log_db_lineas_oferta("INFO", "=== FIN DEL MÉTODO EXITOSO ===", "action_actualizar_lineas_oferta")
-            
-            # Retornar acción que refresque la vista actual
+
             return {
                 'type': 'ir.actions.client',
                 'tag': 'reload',
                 'params': {
                     'title': _('Éxito'),
-                    'message': _(success_msg),
+                    'message': user_message,
                     'type': 'success',
                     'sticky': False,
                 }
             }
-            
+
+        except UserError:
+            raise
         except requests.exceptions.RequestException as e:
             error_msg = f'Error al llamar a la API: {str(e)}'
             _logger.error(error_msg)
@@ -280,21 +293,26 @@ class CrmLead(models.Model):
         Invoca el API de alertas legacy y sincroniza registros locales.
         """
         self.ensure_one()
-        vat = (self.partner_id.vat or "").strip()
-        if not vat:
+        vat_raw = (self.partner_id.vat or "").strip()
+        if not vat_raw:
             raise UserError(_('La oportunidad debe tener un CUIT/CUIL (VAT) configurado para consultar alertas.'))
 
-        vat_clean = "".join(ch for ch in vat if ch.isdigit()) or vat
+        vat_cuit = self._format_vat_as_cuit(vat_raw)
+        if not vat_cuit:
+            raise UserError(_('El CUIT/CUIL debe tener 11 dígitos para consultar alertas.'))
+
         url = "http://sms.cooperativacredikot.com.ar/ServicioConsultas3_WS.aspx"
         headers = {
             'User-Agent': 'Request-Promise',
             'version': 'QUERY',
-            'parametros': f'@QUERY=OdooAlertas;@clicuil={vat_clean}',
+            'parametros': f"@QUERY=odooalertas;@clicuil='{vat_cuit}'",
             'Content-Type': 'application/json'
         }
 
-        self._log_db_lineas_oferta("INFO", f"Sync alertas | VAT={vat_clean}", "action_actualizar_alertas")
-        _logger.info("Iniciando sincronización de alertas para lead_id=%s vat=%s", self.id, vat_clean)
+        self._log_db_lineas_oferta("INFO", f"Sync alertas | CUIT={vat_cuit}", "action_actualizar_alertas")
+        self._log_db_lineas_oferta("INFO", f"Headers alertas: {headers}", "action_actualizar_alertas")
+        _logger.info("Iniciando sincronización de alertas para lead_id=%s cuit=%s", self.id, vat_cuit)
+        _logger.info("Headers alertas: %s", headers)
 
         try:
             response = requests.post(url, headers=headers, data='', timeout=30)
@@ -306,9 +324,9 @@ class CrmLead(models.Model):
 
         raw_text = (response.text or "").lstrip("\ufeff\r\n\t ")
         if not raw_text:
-            msg = "La respuesta del API de alertas llegó vacía."
+            msg = f"La respuesta del API de alertas llegó vacía. parametros={headers.get('parametros')}"
             self._log_db_lineas_oferta("ERROR", msg, "action_actualizar_alertas")
-            raise UserError(_('El API de alertas respondió vacío.'))
+            raise UserError(_('El API de alertas respondió vacío (parametros=%(params)s).') % {'params': headers.get('parametros')})
 
         try:
             payload = response.json()
@@ -316,15 +334,20 @@ class CrmLead(models.Model):
             try:
                 payload = json.loads(raw_text)
             except Exception as exc:
-                msg = f"Respuesta del API de alertas no es JSON válido: {exc}"
+                msg = f"Respuesta del API de alertas no es JSON válido: {exc}. parametros={headers.get('parametros')}"
                 self._log_db_lineas_oferta("ERROR", msg, "action_actualizar_alertas")
-                raise UserError(_('El API de alertas devolvió un formato inválido: %s') % exc) from exc
+                raise UserError(_('El API de alertas devolvió un formato inválido (parametros=%(params)s): %(err)s') % {
+                    'params': headers.get('parametros'),
+                    'err': exc,
+                }) from exc
 
         data = payload.get('DATOS') if isinstance(payload, dict) else None
         if not isinstance(data, list):
-            msg = "El API de alertas no retornó la clave DATOS con una lista."
+            msg = f"El API de alertas no retornó la clave DATOS con una lista. parametros={headers.get('parametros')}"
             self._log_db_lineas_oferta("ERROR", msg, "action_actualizar_alertas")
-            raise UserError(_('El API de alertas no devolvió datos válidos.'))
+            raise UserError(_('El API de alertas no devolvió datos válidos (parametros=%(params)s).') % {
+                'params': headers.get('parametros'),
+            })
 
         alert_env = self.env['cliente.alerta'].sudo()
         alert_env.search([('lead_id', '=', self.id)]).unlink()
@@ -359,19 +382,21 @@ class CrmLead(models.Model):
 
             to_create.append({
                 'lead_id': self.id,
-                'vat': vat_clean,
+                'vat': vat_cuit,
                 'tipo': tipo,
                 'fecha': fecha_str,
+                'rec_importe_rechazado': float(item.get('recimprech') or 0.0),
+                'rec_observaciones': item.get('recobs') or '',
             })
 
         if to_create:
             alert_env.create(to_create)
 
-        self.invalidate_cache(['cliente_alerta_ids', 'cliente_alerta_count'])
-        msg = f"Alertas sincronizadas: {len(to_create)} registros para VAT {vat_clean}"
+        self._invalidate_cache(['cliente_alerta_ids', 'cliente_alerta_count'])
+        msg = f"Alertas sincronizadas: {len(to_create)} registros para CUIT {vat_cuit}"
         self._log_db_lineas_oferta("INFO", msg, "action_actualizar_alertas")
         _logger.info(msg)
-        return True
+        return len(to_create)
 
     def action_view_cliente_alertas(self):
         """
@@ -393,7 +418,10 @@ class CrmLead(models.Model):
 
         action = self.env["ir.actions.actions"]._for_xml_id("lineas_oferta.action_cliente_alerta")
         action['domain'] = [('lead_id', '=', self.id)]
-        ctx = dict(action.get('context') or {})
+        raw_ctx = action.get('context') or {}
+        if isinstance(raw_ctx, str):
+            raw_ctx = safe_eval(raw_ctx, {'uid': self.env.uid})
+        ctx = dict(raw_ctx)
         ctx.update({
             'default_lead_id': self.id,
             'default_vat': self.partner_id.vat or "",

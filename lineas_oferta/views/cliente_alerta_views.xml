@@ -7,6 +7,8 @@
                 <field name="fecha"/>
                 <field name="tipo"/>
                 <field name="vat"/>
+                <field name="rec_importe_rechazado" widget="monetary"/>
+                <field name="rec_observaciones"/>
             </list>
         </field>
     </record>
