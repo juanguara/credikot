@@ -1,3 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_lineas_oferta_user,access_lineas_oferta_user,model_lineas_oferta,sales_team.group_sale_salesman,1,1,0,0
 access_lineas_oferta_manager,access_lineas_oferta_manager,model_lineas_oferta,sales_team.group_sale_manager,1,1,1,1
+access_cliente_alerta_user,access_cliente_alerta_user,model_cliente_alerta,sales_team.group_sale_salesman,1,0,0,0
+access_cliente_alerta_manager,access_cliente_alerta_manager,model_cliente_alerta,sales_team.group_sale_manager,1,1,1,1

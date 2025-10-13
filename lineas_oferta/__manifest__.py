@@ -16,6 +16,7 @@
     'data': [
         'security/ir.model.access.csv',
         'views/lineas_oferta_views.xml',
+        'views/cliente_alerta_views.xml',
     ],
     'license': 'LGPL-3',
     'installable': True,

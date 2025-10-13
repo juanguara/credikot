@@ -124,6 +124,12 @@
                         icon="fa-list-ol">
                     <field name="lineas_oferta_count" widget="statinfo" string="Ofertas"/>
                 </button>
+                <button name="action_view_cliente_alertas"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-bell">
+                    <field name="cliente_alerta_count" widget="statinfo" string="Alertas"/>
+                </button>
                 <button name="action_actualizar_lineas_oferta" 
                         type="object" 
                         class="oe_stat_button" 

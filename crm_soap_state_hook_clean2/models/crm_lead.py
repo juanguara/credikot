@@ -6,8 +6,11 @@ from xml.etree import ElementTree as ET
 from odoo import api, models, _
 from odoo.exceptions import UserError
 
+from urllib.parse import urljoin
+
 
 _LOGGER_NAME = "odoo.addons.crm_soap_state_hook.models.crm_lead"
+E03_REPORT_BASE_URL = "http://webinterna.eft.ar/"
 
 
 class CrmLead(models.Model):
@@ -85,7 +88,7 @@ class CrmLead(models.Model):
         )
         return envelope.encode("utf-8")
 
-    def _soap_post_exact(self, url: str, payload: bytes, timeout: int = 15):
+    def _soap_post(self, url: str, payload: bytes, soap_action: str, timeout: int = 15):
         import requests
 
         url = (url or "").strip()
@@ -94,7 +97,7 @@ class CrmLead(models.Model):
 
         headers = {
             "Content-Type": "text/xml; charset=utf-8",
-            "SOAPAction": "GX#RiesgoSeguimientoMsgAdd_2_WS.Execute",
+            "SOAPAction": soap_action,
             "User-Agent": "Odoo/18 SOAP Hook",
         }
         return requests.post(url, data=payload, headers=headers, timeout=timeout)
@@ -173,7 +176,12 @@ class CrmLead(models.Model):
             if ICP.get_param("crm_soap_state_hook.log.db.payload", "False") in ("True", "1"):
                 self._log_db("DEBUG", f"PAYLOAD: {snippet}", "call_legacy")
 
-        resp = self._soap_post_exact(url, payload, timeout=timeout)
+        resp = self._soap_post(
+            url,
+            payload,
+            soap_action="GX#RiesgoSeguimientoMsgAdd_2_WS.Execute",
+            timeout=timeout,
+        )
 
         if ICP.get_param("crm_soap_state_hook.log.response", "True") in ("True", "1"):
             body = (resp.text or "")
@@ -273,57 +281,246 @@ class CrmLead(models.Model):
             raise UserError(_("Configure la URL del servicio WS E03 en Ajustes."))
 
         timeout = int(ICP.get_param("crm_soap_state_hook.ws_e03.timeout", "15") or 15)
-        wsdl_url = url if url.lower().endswith("?wsdl") else f"{url}?WSDL"
+        usucod = (ICP.get_param("crm_soap_state_hook.usucod") or "").strip()
+        if not usucod:
+            raise UserError(_("Configure el Usucod en Ajustes."))
 
-        self._log_db("INFO", f"Intentando obtener WSDL E03: {wsdl_url}", "action_call_ws_e03")
-        try:
-            import requests
-        except ImportError as exc:
-            raise UserError(_("No se encontró 'requests'. Revise el entorno del servidor.")) from exc
+        riepedid = str(self.x_studio_solicitud or "").strip()
+        if not riepedid:
+            raise UserError(_("La oportunidad debe tener un número de solicitud (x_studio_solicitud)."))
 
-        try:
-            response = requests.get(wsdl_url, timeout=timeout)
-            response.raise_for_status()
-        except requests.RequestException as exc:
-            self._logger().error("Error al obtener WSDL E03: %s", exc)
-            self._log_db("ERROR", f"WS E03 error: {exc}", "action_call_ws_e03")
-            raise UserError(
-                _("No se pudo conectar con el servicio WS E03 (%s).") % exc
-            ) from exc
+        oferta_line = self._crm_soap_ws_e03_pick_offer_line()
+        if not oferta_line:
+            raise UserError(_("Debe seleccionar una línea de oferta para invocar el WS E03."))
 
-        operations = self._crm_soap_parse_wsdl_operations(response.content)
-        if operations:
-            ops_str = ", ".join(operations[:8])
-            if len(operations) > 8:
-                ops_str += ", ..."
-            message = _("Operaciones detectadas: %s") % ops_str
-        else:
-            message = _("WSDL descargado correctamente, sin operaciones detectadas.")
+        params = self._crm_soap_ws_e03_collect_params(
+            usucod=usucod,
+            riepedid=riepedid,
+            oferta_line=oferta_line,
+        )
+        payload = self._crm_soap_ws_e03_build_envelope(params)
 
-        self._log_db("INFO", message, "action_call_ws_e03")
+        if ICP.get_param("crm_soap_state_hook.log.enable", "True") in ("True", "1"):
+            self._logger().info(
+                "SOAP WS E03 | url=%s timeout=%s params=%s",
+                url,
+                timeout,
+                {k: v for k, v in params.items() if k not in {"Firma_64"}},
+            )
+        if ICP.get_param("crm_soap_state_hook.log.payload", "True") in ("True", "1"):
+            snlen = int(ICP.get_param("crm_soap_state_hook.log.snippet_len", "600") or 600)
+            snippet = payload[:snlen].decode("utf-8", errors="ignore")
+            self._logger().debug("SOAP WS E03 payload snippet | %s", snippet)
+            if ICP.get_param("crm_soap_state_hook.log.db.payload", "False") in ("True", "1"):
+                self._log_db("DEBUG", f"E03 PAYLOAD: {snippet}", "action_call_ws_e03")
+
+        resp = self._soap_post(
+            url,
+            payload,
+            soap_action="GX#RiesgoPedido_WS_E03.Execute",
+            timeout=timeout,
+        )
+
+        if ICP.get_param("crm_soap_state_hook.log.response", "True") in ("True", "1"):
+            snlen = int(ICP.get_param("crm_soap_state_hook.log.snippet_len", "600") or 600)
+            body = resp.text or ""
+            self._logger().debug("SOAP WS E03 response | status=%s body=%s", resp.status_code, body[:snlen])
+            if ICP.get_param("crm_soap_state_hook.log.db.response", "False") in ("True", "1"):
+                self._log_db("DEBUG", f"E03 RESPONSE[{resp.status_code}]: {body[:snlen]}", "action_call_ws_e03")
+
+        if resp.status_code != 200:
+            self._log_db("ERROR", f"WS E03 status={resp.status_code}", "action_call_ws_e03")
+            raise UserError(_("WS E03 devolvió un código HTTP inesperado (%s).") % resp.status_code)
+
+        result = self._crm_soap_ws_e03_parse_response(resp.content)
+        p_ok = (result.get("p_ok") or "").strip().upper()
+        if p_ok not in {"SI", "S", "OK", "1", "TRUE"}:
+            message = result.get("p_msg") or _("El servicio WS E03 indicó un error.")
+            self._log_db("ERROR", f"WS E03 error: {message}", "action_call_ws_e03")
+            raise UserError(message)
+
+        self._log_db("INFO", "WS E03 ejecutado correctamente.", "action_call_ws_e03")
+
+        url_suffix = result.get("contrato_url") or result.get("link_firma") or ""
+        if not url_suffix:
+            raise UserError(_("WS E03 no devolvió una URL para abrir."))
+        final_url = url_suffix.strip()
+        if final_url and not final_url.lower().startswith(("http://", "https://")):
+            final_url = urljoin(E03_REPORT_BASE_URL, final_url.lstrip("/"))
+
+        mensaje = result.get("p_msg") or result.get("contrato_mensaje") or _("Operación completada.")
+        self._logger().info("WS E03 OK | URL=%s Mensaje=%s", final_url, mensaje)
+        self._log_db("INFO", f"WS E03 OK | URL={final_url} msg={mensaje}", "action_call_ws_e03")
+
         return {
-            "type": "ir.actions.client",
-            "tag": "display_notification",
-            "params": {
-                "title": _("WS E03"),
-                "message": message,
-                "type": "success",
-                "sticky": False,
-            },
+            "type": "ir.actions.act_url",
+            "target": "new",
+            "url": final_url,
         }
 
-    def _crm_soap_parse_wsdl_operations(self, wsdl_bytes):
+    def _crm_soap_ws_e03_pick_offer_line(self):
+        lines = getattr(self, "lineas_oferta_ids", None)
+        if lines is None:
+            try:
+                self.env["lineas.oferta"]
+            except KeyError:
+                self._logger().warning("El módulo lineas_oferta no está instalado; WS E03 sin renglón seleccionado.")
+            return False
+        if not lines:
+            return False
+        selected = lines.filtered(
+            lambda l: getattr(l, "rie_ped_rpta_lin_r_seleccion", "") == "S" or getattr(l, "is_selected", False)
+        )
+        if selected:
+            return selected[0]
+        return False
+
+    def _crm_soap_ws_e03_collect_params(self, usucod: str, riepedid: str, oferta_line):
+        get_attr = lambda field_name: getattr(self, field_name, False)
+
+        cbu = (
+            get_attr("x_studio_CBU")
+            or get_attr("x_studio_cbu")
+            or getattr(self.partner_id, "x_studio_CBU", False)
+            or getattr(self.partner_id, "x_studio_cbu", False)
+            or ""
+        )
+
+        lead_email = (self.email_from or self.partner_id.email or "").strip()
+        telefono = (self.mobile or self.phone or "").strip()
+
+        locality = (self.partner_id.city or self.city or "").strip()
+        if not locality:
+            locality = "CAPITAL FEDERAL"
+
+        state = getattr(self, "state_id", False) or getattr(self.partner_id, "state_id", False)
+        prov_code = ""
+        if state:
+            prov_code = (
+                getattr(state, "x_studio_refexterna", False)
+                or getattr(state, "x_studio_ref_externa", False)
+                or getattr(state, "x_studio_refexterna_id", False)
+                or ""
+            )
+        prov_code = 1 
+        #str(prov_code or "").strip()
+        if not prov_code:
+            raise UserError(_("La provincia asociada a la oportunidad debe tener configurado 'x_studio_refexterna'."))
+
+        params = {
+            "Usucod": str(usucod or "").strip(),
+            "Riepedimportarorigen": "ODOO-UPD",
+            "Riepedid": str(riepedid or "").strip(),
+            "Ofertarenglon": str(getattr(oferta_line, "rie_ped_rpta_lin_r_ren", "") or "").strip(),
+            "Parametros": "",
+            "Riepedemail_part": lead_email,
+            "Riepedtelcelddn": "",
+            "Riepedtelcelnro": "",
+            "Riepedtelcelnotas": "",
+            "Riepedbancocobrohaberescbu": cbu or "",
+            "Riepeddompartcalle": "",
+            "Riepeddompartpuerta": "",
+            "Riepeddompartpiso": "",
+            "Riepeddompartdpto": "",
+            "Riepeddompartbarrio": "",
+            "Riepeddompartblock": "",
+            "Riepeddompartdistrito": "",
+            "Riepeddompartentrec1": "",
+            "Riepeddompartentrec2": "",
+            "Riepeddomparthabitacion": "",
+            "Riepeddompartindicacion": "",
+            "Riepeddompartempresa": "",
+            "Riepeddompartcasa": "",
+            "Riepeddompartmanzana": "",
+            "Riepeddompartmedidor": "",
+            "Riepeddompartvivienda": "",
+            "Provicod": prov_code,
+            "Riepeddompartlocades": locality,
+            "Firma_64": "",
+        }
+
+        if telefono:
+            params["Riepedtelcelnotas"] = telefono
+
+        return params
+
+    def _crm_soap_ws_e03_build_envelope(self, params: dict) -> bytes:
+        pieces = [
+            f"<ns1:{key}>{html.escape(str(params.get(key, '') or ''))}</ns1:{key}>"
+            for key in (
+                "Usucod",
+                "Riepedimportarorigen",
+                "Riepedid",
+                "Ofertarenglon",
+                "Parametros",
+                "Riepedemail_part",
+                "Riepedtelcelddn",
+                "Riepedtelcelnro",
+                "Riepedtelcelnotas",
+                "Riepedbancocobrohaberescbu",
+                "Riepeddompartcalle",
+                "Riepeddompartpuerta",
+                "Riepeddompartpiso",
+                "Riepeddompartdpto",
+                "Riepeddompartbarrio",
+                "Riepeddompartblock",
+                "Riepeddompartdistrito",
+                "Riepeddompartentrec1",
+                "Riepeddompartentrec2",
+                "Riepeddomparthabitacion",
+                "Riepeddompartindicacion",
+                "Riepeddompartempresa",
+                "Riepeddompartcasa",
+                "Riepeddompartmanzana",
+                "Riepeddompartmedidor",
+                "Riepeddompartvivienda",
+                "Provicod",
+                "Riepeddompartlocades",
+                "Firma_64",
+            )
+        ]
+        body = "".join(pieces)
+        envelope = (
+            f'<x:Envelope xmlns:x="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns1="GX">'
+            f"<x:Header/>"
+            f"<x:Body>"
+            f"<ns1:RiesgoPedido_WS_E03.Execute>"
+            f"{body}"
+            f"</ns1:RiesgoPedido_WS_E03.Execute>"
+            f"</x:Body>"
+            f"</x:Envelope>"
+        )
+        return envelope.encode("utf-8")
+
+    def _crm_soap_ws_e03_parse_response(self, payload: bytes) -> dict:
         try:
-            root = ET.fromstring(wsdl_bytes)
-        except ET.ParseError:
-            return []
+            root = ET.fromstring(payload)
+        except ET.ParseError as exc:
+            raise UserError(_("La respuesta de WS E03 no es XML válido (%s).") % exc) from exc
 
         ns = {
-            "wsdl": "http://schemas.xmlsoap.org/wsdl/",
+            "soap": "http://schemas.xmlsoap.org/soap/envelope/",
+            "gx": "GX",
         }
-        operations = []
-        for operation in root.findall(".//wsdl:operation", ns):
-            name = operation.get("name")
-            if name:
-                operations.append(name)
-        return operations
+        result_node = root.find(".//gx:Riesgopedido_ws_e03_sdt", ns)
+        if result_node is None:
+            raise UserError(_("WS E03 no devolvió el nodo de respuesta esperado."))
+
+        def gx_text(path):
+            node = result_node.find(path, ns)
+            text = node.text if node is not None and node.text is not None else ""
+            return text.strip()
+
+        data = {
+            "riepedid": gx_text("gx:RiePedID"),
+            "p_ok": gx_text("gx:P_OK"),
+            "p_msg": gx_text("gx:P_Msj"),
+            "contrato_resultado": gx_text("gx:Contrato/gx:Resultado"),
+            "contrato_url": gx_text("gx:Contrato/gx:URL"),
+            "contrato_mensaje": gx_text("gx:Contrato/gx:Mensaje"),
+            "contrato_ruta": gx_text("gx:Contrato/gx:Ruta"),
+            "contrato_archivo": gx_text("gx:Contrato/gx:Archivo"),
+            "contrato_formulario": gx_text("gx:Contrato/gx:Formulario_ID"),
+            "link_firma": gx_text("gx:LinkFirma"),
+        }
+        return data

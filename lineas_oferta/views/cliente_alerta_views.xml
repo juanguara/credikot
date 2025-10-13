@@ -1,0 +1,21 @@
+<odoo>
+    <record id="view_cliente_alerta_tree" model="ir.ui.view">
+        <field name="name">cliente.alerta.tree</field>
+        <field name="model">cliente.alerta</field>
+        <field name="arch" type="xml">
+            <list string="Alertas de Cliente" create="false" delete="false">
+                <field name="fecha"/>
+                <field name="tipo"/>
+                <field name="vat"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_cliente_alerta" model="ir.actions.act_window">
+        <field name="name">Alertas del Cliente</field>
+        <field name="res_model">cliente.alerta</field>
+        <field name="view_mode">list</field>
+        <field name="context">{}</field>
+        <field name="domain">[('lead_id', '=', active_id)]</field>
+    </record>
+</odoo>

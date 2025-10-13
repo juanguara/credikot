@@ -54,14 +54,15 @@ class ResPartnerReferente(models.Model):
             if len(r.partner_ids) > 5:
                 raise ValidationError(_("Un referente no puede estar asociado a más de 5 contactos."))
 
-    @api.model
-    def create(self, vals):
-        phone_in = vals.get('phone')
-        e164 = _to_e164_argentina(phone_in)
-        if not e164:
-            raise ValidationError(_("El teléfono debe ser válido en Argentina y estar en formato E.164 (+54...)."))
-        vals['phone'] = e164
-        return super().create(vals)
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            phone_in = vals.get('phone')
+            e164 = _to_e164_argentina(phone_in)
+            if not e164:
+                raise ValidationError(_("El teléfono debe ser válido en Argentina y estar en formato E.164 (+54...)."))
+            vals['phone'] = e164
+        return super().create(vals_list)
 
     def write(self, vals):
         if 'phone' in vals:

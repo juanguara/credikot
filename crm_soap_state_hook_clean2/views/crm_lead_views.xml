@@ -2,7 +2,7 @@
     <record id="view_crm_lead_form_inherit_crm_soap_state_hook" model="ir.ui.view">
         <field name="name">crm.lead.form.crm.soap.state.hook</field>
         <field name="model">crm.lead</field>
-        <field name="inherit_id" ref="crm.crm_case_form_view_oppor"/>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//button[@name='action_set_won_rainbowman']" position="attributes">
                 <attribute name="context">{'crm_soap_button_label': 'marcar como ganada', 'crm_soap_confirm_source': 'won_button'}</attribute>
@@ -15,7 +15,7 @@
                         type="object"
                         class="oe_stat_button"
                         icon="fa-exchange"
-                        string="WS E03"
+                        string="Genera Contrato"
                         help="Invoca el servicio aRiesgoPedido_WS_E03 para la solicitud actual."
                         invisible="not x_studio_solicitud"/>
             </xpath>
