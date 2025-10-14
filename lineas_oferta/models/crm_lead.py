@@ -510,14 +510,29 @@ class CrmLead(models.Model):
         Abrir vista de líneas de oferta
         """
         self.ensure_one()
-        return {
-            'name': _('Líneas de Oferta'),
-            'type': 'ir.actions.act_window',
-            'res_model': 'lineas.oferta',
-            'view_mode': 'tree,form',
-            'domain': [('lead_id', '=', self.id)],
-            'context': {'default_lead_id': self.id},
-        }
+        action = self.env.ref('lineas_oferta.action_lineas_oferta', raise_if_not_found=False)
+        if action:
+            action = action.read()[0]
+        else:
+            action = {
+                'name': _('Líneas de Oferta'),
+                'type': 'ir.actions.act_window',
+                'res_model': 'lineas.oferta',
+                'view_mode': 'list,form',
+            }
+        action['domain'] = [('lead_id', '=', self.id)]
+        action.setdefault('context', {})
+        if isinstance(action['context'], str):
+            action['context'] = safe_eval(action['context'], {'uid': self.env.uid})
+        context = dict(action['context'] or {})
+        context.update({'default_lead_id': self.id})
+        action['context'] = context
+        action['views'] = [
+            (self.env.ref('lineas_oferta.view_lineas_oferta_tree').id, 'list'),
+            (self.env.ref('lineas_oferta.view_lineas_oferta_form').id, 'form'),
+        ]
+        action['view_mode'] = 'list,form'
+        return action
     
     def test_logging_function(self):
         """
