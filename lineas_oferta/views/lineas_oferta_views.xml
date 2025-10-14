@@ -14,7 +14,7 @@
                         type="object"
                         class="btn-link"
                         icon="fa-exchange"
-                        string="Alternar"/>
+                        string="Seleccionar"/>
                 <field name="is_selected" string="Seleccionada" widget="boolean_toggle" readonly="1"/>
                 <field name="rie_ped_id" string="ID Pedido" readonly="1"/>
                 <field name="rie_ped_rpta_lin_r_lin_cred_des" string="Línea Crédito" readonly="1"/>
@@ -97,7 +97,7 @@
                 No hay líneas de oferta disponibles
             </p>
             <p>
-                Use el botón "Actualizar desde API" para cargar las ofertas disponibles.
+                Use el botón "Actualizar datos" para cargar las ofertas disponibles.
             </p>
         </field>
     </record>
@@ -134,7 +134,7 @@
                         type="object" 
                         class="oe_stat_button" 
                         icon="fa-refresh"
-                        string="Actualizar Ofertas"
+                        string="Actualizar Datos"
                         invisible="x_studio_solicitud == False"/>
             </xpath>
             
@@ -161,15 +161,13 @@
                                     type="object"
                                     class="btn-link"
                                     icon="fa-exchange"
-                                    string="Alternar"/>
+                                    string="Seleccionar"/>
                             <field name="is_selected" string="Seleccionada" widget="boolean_toggle" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_ren" string="Ren" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_lin_cred_des" string="Línea Crédito" readonly="1"/>
-                            <field name="rie_ped_rpta_lin_r_tasa" string="Tasa %" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_capital" string="Capital" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_cuotas" string="Cuotas" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_imp_cuota" string="Importe Cuota" readonly="1"/>
-                            <field name="rie_ped_rpta_lin_r_tea" string="TEA %" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_seleccion" string="Selección" widget="badge" readonly="1"/>
                         </list>
                     </field>
