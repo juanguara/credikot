@@ -1,0 +1,39 @@
+<odoo>
+    <record id="view_crm_telefono_list" model="ir.ui.view">
+        <field name="name">crm.telefono.list</field>
+        <field name="model">crm.telefono</field>
+        <field name="arch" type="xml">
+            <list string="Teléfonos" create="true" delete="true">
+                <field name="telcelddn"/>
+                <field name="telcelnro"/>
+                <field name="celprincipal" widget="boolean_toggle"/>
+                <field name="celverificado" widget="boolean_toggle"/>
+                <field name="lead_id"/>
+                <field name="partner_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_crm_telefono_form" model="ir.ui.view">
+        <field name="name">crm.telefono.form</field>
+        <field name="model">crm.telefono</field>
+        <field name="arch" type="xml">
+            <form string="Teléfono">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="lead_id"/>
+                            <field name="partner_id"/>
+                            <field name="telcelddn"/>
+                            <field name="telcelnro"/>
+                        </group>
+                        <group>
+                            <field name="celprincipal"/>
+                            <field name="celverificado"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+</odoo>

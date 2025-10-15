@@ -3,7 +3,7 @@ import html
 import logging
 from xml.etree import ElementTree as ET
 
-from odoo import api, models, _
+from odoo import api, fields, models, _
 from odoo.exceptions import UserError, ValidationError
 
 from urllib.parse import urljoin
@@ -11,6 +11,7 @@ from urllib.parse import urljoin
 
 _LOGGER_NAME = "odoo.addons.crm_soap_state_hook.models.crm_lead"
 E03_REPORT_BASE_URL = "http://webinterna.eft.ar/"
+WS_E03_DEFAULT_PARAM_STRING = "Legajo=SI;Exportar=NO;Nosis=NO;Firmar=NO;Tarjeta=NO"
 
 
 class CrmLead(models.Model):
@@ -37,6 +38,13 @@ class CrmLead(models.Model):
             "func": func or "_log_db",
         }
         self.env["ir.logging"].sudo().create(vals)
+
+    ws_e03_contract_url = fields.Char(
+        string="URL Contrato WS E03",
+        readonly=True,
+        copy=False,
+        help="Última URL de contrato devuelta por el servicio WS E03."
+    )
 
     # ============== Validaciones CBU ==============
 
@@ -361,6 +369,7 @@ class CrmLead(models.Model):
             raise UserError(_("Configure la URL del servicio WS E03 en Ajustes."))
 
         timeout = int(ICP.get_param("crm_soap_state_hook.ws_e03.timeout", "15") or 15)
+        timeout = max(timeout, 60)
         usucod = (ICP.get_param("crm_soap_state_hook.usucod") or "").strip()
         if not usucod:
             raise UserError(_("Configure el Usucod en Ajustes."))
@@ -410,6 +419,7 @@ class CrmLead(models.Model):
 
         if resp.status_code != 200:
             self._log_db("ERROR", f"WS E03 status={resp.status_code}", "action_call_ws_e03")
+            self.write({'ws_e03_contract_url': False})
             raise UserError(_("WS E03 devolvió un código HTTP inesperado (%s).") % resp.status_code)
 
         result = self._crm_soap_ws_e03_parse_response(resp.content)
@@ -417,12 +427,14 @@ class CrmLead(models.Model):
         if p_ok not in {"SI", "S", "OK", "1", "TRUE"}:
             message = result.get("p_msg") or _("El servicio WS E03 indicó un error.")
             self._log_db("ERROR", f"WS E03 error: {message}", "action_call_ws_e03")
+            self.write({'ws_e03_contract_url': False})
             raise UserError(message)
 
         self._log_db("INFO", "WS E03 ejecutado correctamente.", "action_call_ws_e03")
 
         url_suffix = result.get("contrato_url") or result.get("link_firma") or ""
         if not url_suffix:
+            self.write({'ws_e03_contract_url': False})
             raise UserError(_("WS E03 no devolvió una URL para abrir."))
         final_url = url_suffix.strip()
         if final_url and not final_url.lower().startswith(("http://", "https://")):
@@ -431,11 +443,23 @@ class CrmLead(models.Model):
         mensaje = result.get("p_msg") or result.get("contrato_mensaje") or _("Operación completada.")
         self._logger().info("WS E03 OK | URL=%s Mensaje=%s", final_url, mensaje)
         self._log_db("INFO", f"WS E03 OK | URL={final_url} msg={mensaje}", "action_call_ws_e03")
+        self.write({'ws_e03_contract_url': final_url})
 
         return {
             "type": "ir.actions.act_url",
             "target": "new",
             "url": final_url,
+        }
+
+    def action_open_ws_e03_contract(self):
+        self.ensure_one()
+        url = (self.ws_e03_contract_url or "").strip()
+        if not url:
+            raise UserError(_("No hay una URL de contrato disponible. Ejecute 'Genera Contrato' para obtener un enlace vigente."))
+        return {
+            "type": "ir.actions.act_url",
+            "target": "new",
+            "url": url,
         }
 
     def _crm_soap_ws_e03_pick_offer_line(self):
@@ -492,7 +516,7 @@ class CrmLead(models.Model):
             "Riepedimportarorigen": "ODOO-UPD",
             "Riepedid": str(riepedid or "").strip(),
             "Ofertarenglon": str(getattr(oferta_line, "rie_ped_rpta_lin_r_ren", "") or "").strip(),
-            "Parametros": "",
+            "Parametros": WS_E03_DEFAULT_PARAM_STRING,
             "Riepedemail_part": lead_email,
             "Riepedtelcelddn": "",
             "Riepedtelcelnro": "",
@@ -519,8 +543,47 @@ class CrmLead(models.Model):
             "Firma_64": "",
         }
 
-        if telefono:
+        principal_phone = False
+        if hasattr(self, "crm_telefono_ids"):
+            principal_phone = self.crm_telefono_ids.filtered("celprincipal")[:1]
+        if (not principal_phone) and self.partner_id and hasattr(self.partner_id, "crm_telefono_ids"):
+            principal_phone = self.partner_id.crm_telefono_ids.filtered("celprincipal")[:1]
+
+        if principal_phone:
+            params["Riepedtelcelddn"] = principal_phone.telcelddn or ""
+            params["Riepedtelcelnro"] = principal_phone.telcelnro or ""
+            ddn = principal_phone.telcelddn or ""
+            number = principal_phone.telcelnro or ""
+            params["Riepedtelcelnotas"] = f"{ddn}-{number}" if ddn and number else ddn or number or ""
+            self._log_db(
+                "INFO",
+                f"WS E03 teléfono principal | lead={self.id} ddn={ddn} nro={number} verificado={principal_phone.celverificado}",
+                "_crm_soap_ws_e03_collect_params",
+            )
+            self._logger().info(
+                "WS E03 parameters use principal phone | lead_id=%s ddn=%s number=%s verified=%s",
+                self.id,
+                ddn,
+                number,
+                principal_phone.celverificado,
+            )
+        elif telefono:
             params["Riepedtelcelnotas"] = telefono
+            self._log_db(
+                "WARNING",
+                f"WS E03 sin teléfono principal; usando fallback lead_id={self.id} phone={telefono}",
+                "_crm_soap_ws_e03_collect_params",
+            )
+            self._logger().warning(
+                "WS E03 fallback phone for lead_id=%s phone=%s", self.id, telefono
+            )
+        else:
+            self._log_db(
+                "ERROR",
+                f"WS E03 sin teléfono disponible para lead_id={self.id}",
+                "_crm_soap_ws_e03_collect_params",
+            )
+            self._logger().error("WS E03 no phone available for lead_id=%s", self.id)
 
         return params
 

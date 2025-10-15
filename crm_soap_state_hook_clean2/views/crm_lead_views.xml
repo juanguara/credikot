@@ -18,6 +18,13 @@
                         string="Genera Contrato"
                         help="Invoca el servicio aRiesgoPedido_WS_E03 para la solicitud actual."
                         invisible="not x_studio_solicitud"/>
+                <button name="action_open_ws_e03_contract"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-file-text-o"
+                        string="Ver Contrato"
+                        help="Abre la última URL de contrato generada."
+                        invisible="not ws_e03_contract_url"/>
             </xpath>
         </field>
     </record>

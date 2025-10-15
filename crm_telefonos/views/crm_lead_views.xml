@@ -1,0 +1,36 @@
+<odoo>
+    <record id="view_crm_lead_form_inherit_crm_telefonos" model="ir.ui.view">
+        <field name="name">crm.lead.form.crm.telefonos</field>
+        <field name="model">crm.lead</field>
+        <field name="inherit_id" ref="crm.crm_lead_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Teléfonos" name="crm_telefono_page">
+                    <field name="crm_telefono_ids"
+                           context="{'default_lead_id': id, 'default_partner_id': partner_id}"
+                           domain="[('lead_id', '=', id)]"
+                           mode="list,form">
+                        <list editable="bottom" default_order="celprincipal desc, id">
+                            <field name="telcelddn"/>
+                            <field name="telcelnro"/>
+                            <field name="celprincipal" widget="boolean_toggle"/>
+                            <field name="celverificado" widget="boolean_toggle"/>
+                        </list>
+                        <form>
+                            <group>
+                                <group>
+                                    <field name="telcelddn"/>
+                                    <field name="telcelnro"/>
+                                </group>
+                                <group>
+                                    <field name="celprincipal"/>
+                                    <field name="celverificado"/>
+                                </group>
+                            </group>
+                        </form>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+</odoo>

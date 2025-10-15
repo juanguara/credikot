@@ -14,7 +14,7 @@ class LineasOferta(models.Model):
     _name = 'lineas.oferta'
     _description = 'Líneas de Oferta'
     _rec_name = 'display_name'
-    _order = 'rie_ped_id, rie_ped_rpta_lin_r_ren'
+    _order = 'rie_ped_rpta_lin_r_capital desc, rie_ped_id, rie_ped_rpta_lin_r_ren'
     
     # Clave primaria compuesta
     rie_ped_id = fields.Integer(
