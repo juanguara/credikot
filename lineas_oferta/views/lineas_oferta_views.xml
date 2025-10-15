@@ -168,6 +168,7 @@
                             <field name="rie_ped_rpta_lin_r_capital" string="Capital" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_cuotas" string="Cuotas" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_imp_cuota" string="Importe Cuota" readonly="1"/>
+                            <field name="rie_ped_rpta_lin_r_tea" string="TEA %" readonly="1"/>
                             <field name="rie_ped_rpta_lin_r_seleccion" string="Selección" widget="badge" readonly="1"/>
                         </list>
                     </field>
