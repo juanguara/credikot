@@ -15,7 +15,7 @@
                         type="object"
                         class="oe_stat_button"
                         icon="fa-exchange"
-                        string="Genera Contrato"
+                        string="Generar Contrato"
                         help="Invoca el servicio aRiesgoPedido_WS_E03 para la solicitud actual."
                         invisible="not x_studio_solicitud"/>
                 <button name="action_open_ws_e03_contract"
