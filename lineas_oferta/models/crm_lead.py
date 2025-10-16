@@ -56,6 +56,20 @@ class CrmLead(models.Model):
         string='Alertas',
         compute='_compute_cliente_alerta_count'
     )
+
+    partner_birthdate = fields.Date(
+        string='Fecha de Nacimiento',
+        compute='_compute_partner_birthdate',
+        readonly=True,
+        store=False,
+    )
+
+    partner_age = fields.Integer(
+        string='Edad',
+        compute='_compute_partner_age',
+        readonly=True,
+        store=False,
+    )
     
     @api.depends('lineas_oferta_ids')
     def _compute_lineas_oferta_count(self):
@@ -66,6 +80,34 @@ class CrmLead(models.Model):
     def _compute_cliente_alerta_count(self):
         for lead in self:
             lead.cliente_alerta_count = len(lead.cliente_alerta_ids)
+
+    @api.depends('partner_id', 'partner_id.x_studio_fechanacimiento')
+    def _compute_partner_birthdate(self):
+        for lead in self:
+            partner = lead.partner_id
+            birthdate = False
+            if partner:
+                birthdate = getattr(partner, "x_studio_fechanacimiento", False)
+                if not birthdate:
+                    birthdate = getattr(partner, "x_studio_FechaNacimiento", False)
+            lead.partner_birthdate = birthdate
+
+    @api.depends('partner_birthdate')
+    def _compute_partner_age(self):
+        today = fields.Date.context_today(self)
+        if isinstance(today, str):
+            today = fields.Date.from_string(today)
+        for lead in self:
+            birthdate = lead.partner_birthdate
+            if isinstance(birthdate, str):
+                birthdate = fields.Date.from_string(birthdate)
+            if not birthdate:
+                lead.partner_age = False
+                continue
+            age = today.year - birthdate.year - (
+                (today.month, today.day) < (birthdate.month, birthdate.day)
+            )
+            lead.partner_age = max(age, 0)
 
     def _format_vat_as_cuit(self, vat_value):
         digits = "".join(ch for ch in (vat_value or "") if ch.isdigit())
