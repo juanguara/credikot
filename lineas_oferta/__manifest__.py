@@ -12,7 +12,7 @@
         - Selección única de oferta
         - Sincronización automática
     """,
-    'depends': ['crm', 'crm_contact_referents'],
+    'depends': ['crm', 'crm_contact_referents', 'card_validation'],
     'data': [
         'security/ir.model.access.csv',
         'views/lineas_oferta_views.xml',

@@ -374,7 +374,12 @@ class CrmLead(models.Model):
 
         try:
             with self.env.cr.savepoint():
-                card_count = self.action_actualizar_validaciones_tarjeta()
+                if hasattr(self, "action_actualizar_validaciones_tarjeta"):
+                    self._log_db_lineas_oferta("INFO", "Iniciando sincronización de validaciones de tarjeta [validaciones]", "action_actualizar_lineas_oferta")
+                    card_count = self.action_actualizar_validaciones_tarjeta()
+                    self._log_db_lineas_oferta("INFO", f"Validaciones de tarjeta actualizadas [validaciones]: {card_count}", "action_actualizar_lineas_oferta")
+                else:
+                    self._log_db_lineas_oferta("WARNING", "Función action_actualizar_validaciones_tarjeta no disponible (salteada).", "action_actualizar_lineas_oferta")
         except Exception as exc:
             card_error = _exception_to_message(exc)
             log_level = "WARNING" if isinstance(exc, UserError) else "ERROR"
