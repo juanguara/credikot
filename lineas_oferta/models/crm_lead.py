@@ -191,6 +191,7 @@ class CrmLead(models.Model):
             # Crear conjunto de claves compuestas de la respuesta API
             api_keys = set()
             lines_to_create = []
+            selected_records = self.env['lineas.oferta']
             
             for item in data:
                 rie_ped_id = int(item.get('RiePedID', 0))
@@ -222,6 +223,10 @@ class CrmLead(models.Model):
                     'rie_ped_rpta_lin_r_servicio': float(item.get('RiePedRptaLinRServicio', 0)),
                     'rie_ped_rpta_lin_r_gastos': float(item.get('RiePedRptaLinRGastos', 0)),
                 }
+                selection_raw = (item.get('RiePedRptaLinRSeleccion') or "").strip().upper()
+                selection_value = 'S' if selection_raw == 'S' else 'N'
+                vals['rie_ped_rpta_lin_r_seleccion'] = selection_value
+                vals['is_selected'] = selection_value == 'S'
                 
                 # Buscar si existe
                 existing = existing_lines.filtered(
@@ -230,18 +235,19 @@ class CrmLead(models.Model):
                 )
                 
                 if existing:
-                    # Actualizar solo campos readonly (preservar selección)
-                    update_vals = {k: v for k, v in vals.items() 
-                                  if k != 'rie_ped_rpta_lin_r_seleccion'}
+                    update_vals = vals.copy()
+                    update_vals.pop('lead_id', None)
                     existing.sudo().write(update_vals)
+                    if selection_value == 'S':
+                        selected_records = (selected_records | existing)
                 else:
                     # Crear nuevo
-                    vals['rie_ped_rpta_lin_r_seleccion'] = 'N'
                     lines_to_create.append(vals)
             
             # Crear nuevas líneas
             if lines_to_create:
-                self.env['lineas.oferta'].sudo().create(lines_to_create)
+                new_lines = self.env['lineas.oferta'].sudo().create(lines_to_create)
+                selected_records = (selected_records | new_lines.filtered(lambda l: l.is_selected))
             
             # Eliminar líneas que no están en la respuesta de la API
             lines_to_delete = existing_lines.filtered(
@@ -249,6 +255,16 @@ class CrmLead(models.Model):
             )
             if lines_to_delete:
                 lines_to_delete.sudo().unlink()
+            for record in selected_records:
+                try:
+                    record._apply_selected_offer_values_to_lead()
+                except Exception as exc:
+                    self._log_db_lineas_oferta(
+                        "ERROR",
+                        f"No se pudo aplicar valores de oferta seleccionada (id={record.id}): {exc}",
+                        "action_actualizar_lineas_oferta",
+                    )
+                    _logger.exception("Error aplicando oferta seleccionada al lead %s", self.id)
             success_msg = f"Se actualizaron {len(data)} líneas de oferta correctamente"
             _logger.info(success_msg)
             self._log_db_lineas_oferta("INFO", success_msg, "action_actualizar_lineas_oferta")
@@ -280,8 +296,10 @@ class CrmLead(models.Model):
 
         offer_count = 0
         alert_count = 0
+        card_count = 0
         offer_error = None
         alert_error = None
+        card_error = None
 
         def _exception_to_message(exc):
             if isinstance(exc, UserError) and exc.args:
@@ -312,6 +330,18 @@ class CrmLead(models.Model):
             else:
                 _logger.exception("Error inesperado al sincronizar alertas para lead_id=%s", self.id)
 
+        try:
+            with self.env.cr.savepoint():
+                card_count = self.action_actualizar_validaciones_tarjeta()
+        except Exception as exc:
+            card_error = _exception_to_message(exc)
+            log_level = "WARNING" if isinstance(exc, UserError) else "ERROR"
+            self._log_db_lineas_oferta(log_level, f"Error al sincronizar validaciones de tarjeta: {card_error}", "action_actualizar_lineas_oferta")
+            if isinstance(exc, UserError):
+                _logger.warning("Error al sincronizar validaciones de tarjeta para lead_id=%s: %s", self.id, card_error)
+            else:
+                _logger.exception("Error inesperado al sincronizar validaciones de tarjeta para lead_id=%s", self.id)
+
         message_parts = []
         if offer_error:
             message_parts.append(_("Ofertas: %(msg)s") % {'msg': offer_error})
@@ -323,7 +353,12 @@ class CrmLead(models.Model):
         else:
             message_parts.append(_("Alertas actualizadas: %(count)d") % {'count': alert_count})
 
-        message_type = 'success' if not offer_error and not alert_error else 'warning'
+        if card_error:
+            message_parts.append(_("Validaciones tarjeta: %(msg)s") % {'msg': card_error})
+        else:
+            message_parts.append(_("Validaciones tarjeta actualizadas: %(count)d") % {'count': card_count})
+
+        message_type = 'success' if not (offer_error or alert_error or card_error) else 'warning'
         title = _('Éxito') if message_type == 'success' else _('Aviso')
         final_message = "\n".join(message_parts)
 
