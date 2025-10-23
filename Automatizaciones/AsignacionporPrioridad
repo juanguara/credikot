@@ -1,0 +1,339 @@
+# Available variables:
+#  - env: environment on which the action is triggered
+#  - model: model of the record on which the action is triggered; is a void recordset
+#  - record: record on which the action is triggered; may be void
+#  - records: recordset of all records on which the action is triggered in multi-mode; may be void
+#  - time, datetime, dateutil, timezone: useful Python libraries
+#  - float_compare: utility function to compare floats based on specific precision
+#  - b64encode, b64decode: functions to encode/decode binary data
+#  - log: log(message, level='info'): logging function to record debug information in ir.logging table
+#  - _logger: _logger.info(message): logger to emit messages in server logs
+#  - UserError: exception class for raising user-facing warning messages
+#  - Command: x2many commands namespace
+# To return an action, assign: action = {...}
+# ========= CONFIG =========
+TEAM_IDS = [1]               # IDs de equipos de ventas a procesar; [] = todos
+STAGE_ORDER = [1, 3, 2, 6]   # IDs de etapas en el orden deseado; [] = detecta automáticamente (por id asc)
+DEFAULT_CAP = 5              # respaldo si la etapa no define x_cc_cap_per_user (o es None)
+BATCH_LIMIT_PER_TEAM = 200   # tope de leads a asignar por corrida y por equipo (suma de todas las etapas)
+SCHEDULE_CALL = False        # True para agendar una llamada al asignar
+# ==========================
+
+# Variables provistas por el entorno: env, log, datetime
+
+# --- logging (sin imports) ---
+EXECUTION_ID = (datetime.datetime.now().strftime('%H%M%S%f'))[-8:]
+START_TIME = datetime.datetime.now()
+
+def elog(msg, level='info', team=None, details=None):
+    prefix = "[CAP-ASSIGN-STAGED-%s]" % EXECUTION_ID
+    tinfo = (" [TEAM:%s]" % team.name) if team else ""
+    full = "%s%s %s" % (prefix, tinfo, msg)
+    log(full, level=level)
+    if details:
+        log("%s%s DETAILS: %s" % (prefix, tinfo, details), level='info')
+
+def summary(teams_processed, total_assigned, total_skipped):
+    dur = (datetime.datetime.now() - START_TIME).total_seconds()
+    elog("EXECUTION COMPLETED in %.2fs - Teams:%s Assigned:%s Skipped:%s" %
+         (dur, teams_processed, total_assigned, total_skipped), 'info')
+
+# --- contexto sudo + multicompañía global ---
+ALL_COMPANY_IDS = env['res.company'].sudo().search([]).ids
+TEAM_M = env['crm.team'].sudo().with_context(allowed_company_ids=ALL_COMPANY_IDS, active_test=False)
+LEAD_M = env['crm.lead'].sudo().with_context(allowed_company_ids=ALL_COMPANY_IDS)
+USER_M = env['res.users'].sudo().with_context(allowed_company_ids=ALL_COMPANY_IDS)
+STAGE_M = env['crm.stage'].sudo().with_context(allowed_company_ids=ALL_COMPANY_IDS)
+
+def ctx_write(rec, vals):
+    rec.with_context(tracking_disable=True, mail_notrack=True).write(vals)
+
+# Capacidad "ilimitada" (número muy grande)
+CAP_INF = 10**12
+
+def stage_cap(stage):
+    """
+    Devuelve el tope por usuario para la etapa:
+      - 0     => ilimitado (CAP_INF)
+      - None  => DEFAULT_CAP
+      - >0    => el valor ingresado (entero)
+    Si el campo x_cc_cap_per_user no existe, usa DEFAULT_CAP.
+    """
+    if not stage:
+        return DEFAULT_CAP
+    fld = stage._fields.get('x_cc_cap_per_user')
+    if not fld:
+        return DEFAULT_CAP
+    cap = stage.x_cc_cap_per_user
+    if cap is None:
+        return DEFAULT_CAP
+    try:
+        cap = int(cap)
+    except Exception:
+        return DEFAULT_CAP
+    if cap == 0:
+        return 0
+    return max(0, cap)
+
+def available_users_for_team(team):
+    member_ids = team.member_ids.ids
+    if not member_ids:
+        elog("Team has no members", 'warning', team)
+        return USER_M.browse([])
+    domain = [
+        ('id', 'in', member_ids),
+        ('active', '=', True),
+    ]
+    # switches opcionales si existen en tu BD
+    if USER_M._fields.get('x_studio_x_cc_state'):
+        domain.append(('x_studio_x_cc_state', '=', True))
+    if USER_M._fields.get('x_studio_estado_call'):
+        domain.append(('x_studio_estado_call', '=', 'available'))  # ojo: usá la CLAVE real de tu selección
+    users = USER_M.search(domain, order='id')
+    elog("Available users: %s" % len(users), 'info', team, [u.name for u in users])
+    return users
+
+def build_load_for_stage(team, user_ids, stage_id):
+    """
+    Devuelve dict {(uid): count_asignados_en_esta_etapa} con carga actual por usuario SOLO para stage_id.
+    """
+    if not user_ids:
+        return {}
+    rg = LEAD_M.read_group(
+        domain=[
+            ('team_id', '=', team.id),
+            ('user_id', 'in', user_ids),
+            ('stage_id', '=', stage_id),
+            ('active', '=', True),
+            ('type', 'in', ['lead', 'opportunity']),
+        ],
+        fields=['id:count'],
+        groupby=['user_id'],
+        lazy=False
+    )
+    load = {rec['user_id'][0]: rec.get('id_count', 0) for rec in rg if rec.get('user_id')}
+    return load
+
+def next_user_rr_with_capacity(ordered_user_ids, last_id, load, cap):
+    """
+    Devuelve siguiente uid en RR con capacidad considerando 'load' y 'cap'.
+    Si cap es CAP_INF, ignora 'load' y retorna el siguiente en RR.
+    """
+    if not ordered_user_ids:
+        return False
+
+    # punto de inicio RR
+    if last_id and last_id in ordered_user_ids:
+        start = (ordered_user_ids.index(last_id) + 1) % len(ordered_user_ids)
+    else:
+        start = 0
+
+    if cap >= CAP_INF:
+        return ordered_user_ids[start]
+
+    L = len(ordered_user_ids)
+    for k in range(L):
+        uid = ordered_user_ids[(start + k) % L]
+        if load.get(uid, 0) < cap:
+            return uid
+    return False
+
+def schedule_call(lead, user_id):
+    if not SCHEDULE_CALL:
+        return
+    try:
+        act_xmlid = 'mail.mail_activity_data_call'
+        if env.ref(act_xmlid, raise_if_not_found=False):
+            lead.activity_schedule(act_xmlid, user_id=user_id, summary='Llamar lead')
+        else:
+            act = env['mail.activity.type'].sudo().search([('category', '=', 'call')], limit=1)
+            if act:
+                env['mail.activity'].sudo().create({
+                    'activity_type_id': act.id,
+                    'res_model_id': env['ir.model']._get_id('crm.lead'),
+                    'res_id': lead.id,
+                    'user_id': user_id,
+                    'summary': 'Llamar lead',
+                })
+    except Exception as e:
+        elog("Activity error for lead %s: %s" % (lead.id, e), 'error')
+
+def process_stage_for_team(team, stage_id, ordered_user_ids, total_left, last_id):
+    """
+    Asigna en la etapa 'stage_id' para el 'team' hasta agotar 'total_left' o la capacidad por usuario.
+    Devuelve: (assigned, skipped, last_id_actualizado)
+    """
+    stage = STAGE_M.browse(stage_id).exists()
+    if not stage:
+        elog(f"Stage {stage_id} not found; skipping", 'warning', team)
+        return 0, 0, last_id
+
+    cap = stage_cap(stage)
+    if not ordered_user_ids:
+        elog("No available users for this team; skipping stage", 'warning', team)
+        return 0, 0, last_id
+
+    # carga actual por usuario SOLO en esta etapa
+    load = build_load_for_stage(team, ordered_user_ids, stage_id)
+    # pendientes en esta etapa (limitado por total_left y BATCH_LIMIT_PER_TEAM)
+    stage_limit = min(total_left, BATCH_LIMIT_PER_TEAM)
+    pending = LEAD_M.search([
+        ('team_id', '=', team.id),
+        ('stage_id', '=', stage_id),
+        ('user_id', '=', False),
+        ('active', '=', True),
+        ('type', 'in', ['lead', 'opportunity']),
+    ], order='create_date asc', limit=stage_limit)
+
+    if not pending:
+        elog(f"No pending leads in stage {stage.name} ({stage.id})", 'info', team)
+        return 0, 0, last_id
+
+    # Prefetch mínimo
+    pending.read(['name'])
+
+    assigned = 0
+    skipped = 0
+
+    for lead in pending:
+        if assigned >= stage_limit:
+            break
+
+        uid = next_user_rr_with_capacity(ordered_user_ids, last_id, load, cap)
+        if not uid:
+            # Todos alcanzaron el tope en esta etapa
+            skipped += 1
+            continue
+
+        # --- BARRERA 2: verificación en vivo (anti-concurrencia) SOLO si hay tope ---
+        if cap < CAP_INF:
+            current = LEAD_M.search_count([
+                ('team_id', '=', team.id),
+                ('user_id', '=', uid),
+                ('stage_id', '=', stage_id),
+                ('active', '=', True),
+                ('type', 'in', ['lead', 'opportunity']),
+            ])
+            if current >= cap:
+                # intentá con otros usuarios en esta misma pasada (siguiente RR)
+                tried = 0
+                L = len(ordered_user_ids)
+                if last_id and last_id in ordered_user_ids:
+                    start = (ordered_user_ids.index(last_id) + 1) % L
+                else:
+                    start = 0
+                pick = False
+                for k in range(1, L):  # ya probamos 1
+                    uid2 = ordered_user_ids[(start + k) % L]
+                    if load.get(uid2, 0) >= cap:
+                        continue
+                    current2 = LEAD_M.search_count([
+                        ('team_id', '=', team.id),
+                        ('user_id', '=', uid2),
+                        ('stage_id', '=', stage_id),
+                        ('active', '=', True),
+                        ('type', 'in', ['lead', 'opportunity']),
+                    ])
+                    if current2 < cap:
+                        uid = uid2
+                        pick = True
+                        break
+                    tried += 1
+                if not pick:
+                    skipped += 1
+                    continue
+        # si cap es ilimitado, no hay barrera 2
+
+        # Asignar (sin notificaciones por correo)
+        ctx_write(lead, {'user_id': uid})
+
+        # Actualizar contadores y puntero RR
+        load[uid] = load.get(uid, 0) + 1
+        last_id = uid
+        assigned += 1
+
+        # Actividad (opcional)
+        if SCHEDULE_CALL:
+            schedule_call(lead, uid)
+
+    elog(f"Stage {stage.name} ({stage.id}) → assigned:{assigned} skipped:{skipped}", 'info', team)
+    return assigned, skipped, last_id
+
+def process_team(team):
+    elog("Processing team", 'info', team)
+    users = available_users_for_team(team)
+    if not users:
+        return 0, 0
+
+    ordered_user_ids = users.ids
+    # Puntero round-robin (persistencia opcional: si tenés un campo, podés usarlo)
+    last_id = team.x_studio_ultimo_asignado.id if team._fields.get('x_studio_ultimo_asignado') and team.x_studio_ultimo_asignado else False
+
+    # Determinar el orden de etapas
+    if STAGE_ORDER:
+        stage_ids_ordered = [sid for sid in STAGE_ORDER if isinstance(sid, int) and STAGE_M.browse(sid).exists()]
+    else:
+        # Detectar etapas con pendientes y ordenarlas por id asc
+        r = LEAD_M.read_group(
+            domain=[
+                ('team_id', '=', team.id),
+                ('user_id', '=', False),
+                ('active', '=', True),
+                ('type', 'in', ['lead', 'opportunity']),
+            ],
+            fields=['id:count'],
+            groupby=['stage_id'],
+            lazy=False
+        )
+        stage_ids_ordered = sorted([rec['stage_id'][0] for rec in r if rec.get('stage_id')], key=lambda x: x)
+
+    if not stage_ids_ordered:
+        elog("No stages to process (no pending leads).", 'info', team)
+        return 0, 0
+
+    total_assigned = 0
+    total_skipped  = 0
+    total_left = BATCH_LIMIT_PER_TEAM
+
+    for sid in stage_ids_ordered:
+        if total_left <= 0:
+            break
+        a, s, last_id = process_stage_for_team(team, sid, ordered_user_ids, total_left, last_id)
+        total_assigned += a
+        total_skipped  += s
+        total_left -= a
+
+    # Persistir puntero RR si tenés ese campo en crm.team (opcional)
+    if team._fields.get('x_studio_ultimo_asignado'):
+        team.write({'x_studio_ultimo_asignado': last_id or False})
+
+    elog("Team done → assigned:%s skipped:%s" % (total_assigned, total_skipped), 'info', team)
+    return total_assigned, total_skipped
+
+# -------- MAIN ----------
+elog("=" * 50, 'info'); elog("CAP-ASSIGN STAGED SCRIPT START", 'info')
+elog("CONFIG=%s" % {
+    'TEAM_IDS': TEAM_IDS,
+    'STAGE_ORDER': STAGE_ORDER,
+    'DEFAULT_CAP': DEFAULT_CAP,
+    'BATCH_LIMIT_PER_TEAM': BATCH_LIMIT_PER_TEAM,
+    'SCHEDULE_CALL': SCHEDULE_CALL
+}, 'info')
+elog("Running as user %s (%s) | companies=%s" % (env.user.id, env.user.name, ALL_COMPANY_IDS), 'info')
+
+teams = TEAM_M.browse([tid for tid in TEAM_IDS if isinstance(tid, int)]).exists() if TEAM_IDS else TEAM_M.search([])
+elog("Teams selected: %s" % [(t.id, t.name) for t in teams], 'info')
+
+if not teams:
+    elog("No teams found. Check TEAM_IDS / compañía / archivado.", 'error')
+else:
+    total_assigned = 0; total_skipped = 0; idx = 0
+    for team in teams:
+        idx += 1
+        elog("--- Team %s/%s %s ---" % (idx, len(teams), team.name), 'info', team)
+        a, s = process_team(team)
+        total_assigned += a; total_skipped += s
+        elog("--- Done team %s/%s %s ---" % (idx, len(teams), team.name), 'info', team)
+    summary(len(teams), total_assigned, total_skipped)
+
+elog("CAP-ASSIGN STAGED SCRIPT FINISH", 'info'); elog("=" * 50, 'info')
